@@ -246,8 +246,37 @@ class MeshEditor:
             if valid_indices:
                 # 頂点を変形（変形強度を調整）
                 scaled_displacement = displacement_vector * 0.1  # 変形強度を1/10に調整
-                deformed_mesh.vertices[valid_indices] += scaled_displacement
-                logger.info(f"Deformed {len(valid_indices)} vertices in region {region_name} with displacement {scaled_displacement}")
+                before_positions = deformed_mesh.vertices[valid_indices].copy()
+                after_positions = before_positions + scaled_displacement
+                deformed_mesh.vertices[valid_indices] = after_positions
+
+                # 差分ログ（概要）
+                deltas = after_positions - before_positions
+                magnitudes = np.linalg.norm(deltas, axis=1)
+                logger.info(
+                    f"Region '{region_name}': changed {len(valid_indices)} vertices | "
+                    f"delta(mm) mean={float(magnitudes.mean()):.4f}, max={float(magnitudes.max()):.4f}"
+                )
+
+                # 差分ログ（詳細 上位N件）
+                try:
+                    top_k = 20
+                    sort_idx = np.argsort(-magnitudes)[:top_k]
+                    for local_i in sort_idx:
+                        v_idx = valid_indices[local_i]
+                        b = before_positions[local_i]
+                        a = after_positions[local_i]
+                        d = deltas[local_i]
+                        logger.info(
+                            "vertex %d | before=%s after=%s delta=%s | |delta|=%.4f",
+                            v_idx,
+                            np.round(b, 4).tolist(),
+                            np.round(a, 4).tolist(),
+                            np.round(d, 4).tolist(),
+                            float(magnitudes[local_i])
+                        )
+                except Exception:
+                    pass
             else:
                 logger.warning(f"No valid vertices found for region {region_name}")
             
