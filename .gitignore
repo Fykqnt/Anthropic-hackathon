@@ -4,3 +4,11 @@ node_modules
 .next
 coverage
 dist
+python-server/.venv/
+*.log
+.ngrok*
+.python-server.*
+.next-dev.*
+presentation/.next-dev*
+presentation/.ngrok*
+presentation/.python-server*
