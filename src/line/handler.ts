@@ -13,7 +13,7 @@ export async function handleEvents(events: LineEvent[], deps: Deps): Promise<voi
       if (ev.type === 'follow' && (ev as any).replyToken) {
         const msg: TextMessage = {
           type: 'text',
-          text: '顔写真を貼ってください！整形のシミュレーションを実施いたします。',
+          text: '顔写真を貼ってください！整形のシミュレーションを実施いたします！',
         };
         await deps.replyMessage((ev as any).replyToken, { messages: [msg] });
         continue;
@@ -25,7 +25,7 @@ export async function handleEvents(events: LineEvent[], deps: Deps): Promise<voi
         await deps.store.set(userId, content);
         const msg: TextMessage = {
           type: 'text',
-          text: '希望する施術を選択してください。これはイメージシミュレーションであり医療行為ではありません。',
+          text: '顔写真を貼ってください！整形のシミュレーションを実施いたします！',
           quickReply: buildTreatmentQuickReply(),
         };
         await deps.replyMessage(ev.replyToken, { messages: [msg] });
