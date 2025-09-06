@@ -15,7 +15,8 @@ class MeshEditor:
             "顎を細く": self._edit_jaw_width,
             "唇を厚く": self._edit_lip_thickness,
             "頬を引き締める": self._edit_cheek_contour,
-            "額を広く": self._edit_forehead_width
+            "額を広く": self._edit_forehead_width,
+            "顎下脂肪吸引": self._edit_submental_fat
         }
         
         # 顔の部位のランドマークインデックス（簡易版）
@@ -44,7 +45,8 @@ class MeshEditor:
             "left_cheek": list(range(116, 140)),      # 左頬
             "right_cheek": list(range(345, 359)),     # 右頬
             "forehead": list(range(10, 22)),          # 額
-            "chin": list(range(175, 185))             # 顎先
+            "chin": list(range(175, 185)),            # 顎先
+            "submental": list(range(200, 234))        # 顎下（簡易範囲）
         }
     
     async def edit_mesh(self, mesh: trimesh.Trimesh, operations: list) -> trimesh.Trimesh:
@@ -99,6 +101,8 @@ class MeshEditor:
                 return self._deform_cheek_contour(mesh, value)
             elif target == "forehead_width_mm":
                 return self._deform_forehead_width(mesh, value)
+            elif target == "submental_fat_mm":
+                return self._deform_submental_fat(mesh, value)
             else:
                 logger.warning(f"Unknown target: {target}")
                 return mesh
@@ -117,7 +121,8 @@ class MeshEditor:
             "jaw_width_mm": (-2.0, 2.0),
             "lip_thickness_mm": (-1.0, 1.0),
             "cheek_contour_mm": (-1.5, 1.5),
-            "forehead_width_mm": (-1.5, 1.5)
+            "forehead_width_mm": (-1.5, 1.5),
+            "submental_fat_mm": (-3.0, 3.0)
         }
         
         if target in limits:
@@ -224,6 +229,19 @@ class MeshEditor:
         """額の幅を変形"""
         return self._deform_region(mesh, "forehead", [value, 0, 0])
     
+    def _deform_submental_fat(self, mesh: trimesh.Trimesh, value: float) -> trimesh.Trimesh:
+        """顎下脂肪吸引: 顎下領域を内側（奥/Zマイナス）かつ少し上(Yマイナス)へ"""
+        # Z方向を主、Y方向は弱めに（自然に）
+        dz = -abs(value) * 3.0      # 可視化強調: 奥行きを強めに
+        dy = -abs(value) * 0.9      # 上方向も強めに
+        return self._deform_region(mesh, "submental", [0, dy, dz])
+
+    def _edit_submental_fat(self, mesh: trimesh.Trimesh, intensity: float) -> trimesh.Trimesh:
+        """テキスト編集版：顎下脂肪を軽減"""
+        dz = -0.6 * intensity       # 可視化強調
+        dy = -0.18 * intensity
+        return self._deform_region(mesh, "submental", [0, dy, dz])
+
     def _deform_region(self, mesh: trimesh.Trimesh, region_name: str, displacement: list) -> trimesh.Trimesh:
         """指定された部位を変形"""
         try:
