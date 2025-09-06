@@ -17,13 +17,13 @@ class FaceMeshProcessor:
         self.mp_drawing = mp.solutions.drawing_utils
         self.mp_drawing_styles = mp.solutions.drawing_styles
         
-        # Face mesh初期化
+        # Face mesh初期化（横顔・斜め顔にも対応）
         self.face_mesh = self.mp_face_mesh.FaceMesh(
             static_image_mode=True,
             max_num_faces=1,
             refine_landmarks=True,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5
+            min_detection_confidence=0.3,  # 検出感度を上げる
+            min_tracking_confidence=0.3
         )
         
         logger.info("FaceMeshProcessor initialized")
@@ -34,7 +34,7 @@ class FaceMeshProcessor:
     
     async def build_mesh(self, pil_image: Image.Image) -> Optional[trimesh.Trimesh]:
         """
-        PIL画像から3D face meshを構築
+        PIL画像から3D face meshを構築（正面・横顔・斜め顔に対応）
         
         Args:
             pil_image: PIL画像オブジェクト
@@ -46,6 +46,10 @@ class FaceMeshProcessor:
             # PIL画像をOpenCV形式に変換
             cv_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
             
+            # 顔の向きを検出
+            face_orientation = self._detect_face_orientation(cv_image)
+            logger.info(f"Detected face orientation: {face_orientation}")
+            
             # MediaPipeで顔のランドマーク検出
             results = self.face_mesh.process(cv_image)
             
@@ -56,36 +60,85 @@ class FaceMeshProcessor:
             # 最初の顔のランドマークを取得
             face_landmarks = results.multi_face_landmarks[0]
             
-            # 3Dメッシュに変換
-            mesh = self._landmarks_to_mesh(face_landmarks, cv_image.shape)
+            # 3Dメッシュに変換（顔の向きを考慮）
+            mesh = self._landmarks_to_mesh(face_landmarks, cv_image.shape, face_orientation)
             
-            logger.info(f"Successfully built 3D mesh with {len(mesh.vertices)} vertices")
+            logger.info(f"Successfully built 3D mesh with {len(mesh.vertices)} vertices for {face_orientation} face")
             return mesh
             
         except Exception as e:
             logger.error(f"Error building mesh: {str(e)}")
             return None
     
-    def _landmarks_to_mesh(self, landmarks, image_shape: Tuple[int, int, int]) -> trimesh.Trimesh:
+    def _detect_face_orientation(self, cv_image) -> str:
+        """顔の向きを検出"""
+        try:
+            # 簡易的な顔の向き検出
+            # 左右の目の位置を比較して判定
+            results = self.face_mesh.process(cv_image)
+            if not results.multi_face_landmarks:
+                return "unknown"
+            
+            landmarks = results.multi_face_landmarks[0]
+            
+            # 左右の目の中心点を取得
+            left_eye_center = np.mean([
+                [landmarks.landmark[33].x, landmarks.landmark[33].y],
+                [landmarks.landmark[7].x, landmarks.landmark[7].y],
+                [landmarks.landmark[163].x, landmarks.landmark[163].y],
+                [landmarks.landmark[144].x, landmarks.landmark[144].y]
+            ], axis=0)
+            
+            right_eye_center = np.mean([
+                [landmarks.landmark[362].x, landmarks.landmark[362].y],
+                [landmarks.landmark[382].x, landmarks.landmark[382].y],
+                [landmarks.landmark[380].x, landmarks.landmark[380].y],
+                [landmarks.landmark[374].x, landmarks.landmark[374].y]
+            ], axis=0)
+            
+            # 目の位置差から向きを判定
+            eye_diff = left_eye_center[0] - right_eye_center[0]
+            
+            if abs(eye_diff) < 0.1:
+                return "front"  # 正面
+            elif eye_diff > 0.1:
+                return "left"   # 左向き
+            else:
+                return "right"  # 右向き
+                
+        except Exception as e:
+            logger.warning(f"Error detecting face orientation: {str(e)}")
+            return "unknown"
+    
+    def _landmarks_to_mesh(self, landmarks, image_shape: Tuple[int, int, int], face_orientation: str = "front") -> trimesh.Trimesh:
         """
-        顔のランドマークから3Dメッシュを生成
+        顔のランドマークから3Dメッシュを生成（顔の向きを考慮）
         
         Args:
             landmarks: MediaPipeの顔ランドマーク
             image_shape: 画像の形状 (height, width, channels)
+            face_orientation: 顔の向き ("front", "left", "right", "unknown")
             
         Returns:
             trimesh.Trimesh: 3Dメッシュ
         """
         height, width = image_shape[:2]
         
-        # ランドマークを3D座標に変換
+        # ランドマークを3D座標に変換（顔の向きを考慮）
         vertices = []
         for landmark in landmarks.landmark:
             # 正規化座標を実際のピクセル座標に変換
             x = landmark.x * width
             y = landmark.y * height
             z = landmark.z * width  # Z座標もスケール調整
+            
+            # 顔の向きに応じて座標を調整
+            if face_orientation == "left":
+                # 左向きの場合、Z座標を調整
+                z = z * 0.5  # 奥行きを浅くする
+            elif face_orientation == "right":
+                # 右向きの場合、Z座標を調整
+                z = z * 0.5  # 奥行きを浅くする
             
             vertices.append([x, y, z])
         
@@ -210,7 +263,7 @@ class FaceMeshProcessor:
                 pass
 
         # 点を薄く重ねる
-        ax.scatter(Xp, Yp, s=5)
+        ax.scatter(Xp, Yp, s=5, c='blue', alpha=0.6)
 
         # インデックス表示（小さく）
         if draw_indices:

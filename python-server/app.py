@@ -237,6 +237,64 @@ async def debug_face_detection(
         logger.error(f"Error in face detection debug: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Face detection debug failed: {str(e)}")
 
+@app.post("/mesh/deform")
+async def deform_mesh(
+    image: UploadFile = File(...),
+    prompt: str = Form(...),
+    consent: bool = Form(False),
+    processors: Dict = Depends(get_processors)
+):
+    """3D Face Meshを変形"""
+    try:
+        if not consent:
+            raise HTTPException(status_code=400, detail="Consent is required")
+
+        # 画像の読み込み
+        image_data = await image.read()
+        pil_image = Image.open(io.BytesIO(image_data))
+        
+        logger.info(f"Deforming mesh from image: {image.filename}, prompt: {prompt}")
+        
+        # 3D Face Mesh構築
+        face_mesh = await processors["face_processor"].build_mesh(pil_image)
+        
+        if not face_mesh:
+            raise HTTPException(status_code=400, detail="Failed to detect face or build mesh")
+        
+        # プロンプトを解析して操作を取得
+        operations = processors["instruction_parser"].parse_instruction(prompt)
+        
+        if not operations:
+            raise HTTPException(status_code=400, detail="No valid operations found in prompt")
+        
+        # メッシュを変形
+        deformed_mesh = await processors["mesh_editor"].edit_mesh(face_mesh, operations)
+        
+        # 変形後のメッシュを可視化
+        mesh_image = processors["face_processor"].visualize_mesh(deformed_mesh, (800, 600))
+        
+        # 画像をbase64エンコード
+        buffered = io.BytesIO()
+        mesh_image.save(buffered, format="PNG")
+        img_base64 = base64.b64encode(buffered.getvalue()).decode()
+        
+        return JSONResponse({
+            "success": True,
+            "mesh_image": f"data:image/png;base64,{img_base64}",
+            "mesh_info": {
+                "original_vertices_count": len(face_mesh.vertices),
+                "original_faces_count": len(face_mesh.faces),
+                "deformed_vertices_count": len(deformed_mesh.vertices),
+                "deformed_faces_count": len(deformed_mesh.faces),
+                "operations_applied": operations,
+                "original_image_size": pil_image.size
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error deforming mesh: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Mesh deformation failed: {str(e)}")
+
 @app.post("/edit/parse")
 async def parse_edit_instruction(
     instruction: str,
