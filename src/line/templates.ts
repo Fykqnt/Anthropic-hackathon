@@ -1,4 +1,5 @@
-import { generateSurgeryPrompt, defaultIntensities, type SurgeryIntensity } from '../app/prompt';
+// NOTE: prompt utilities live under lib/, not app/
+import { generateSurgeryPrompt, defaultIntensities, type SurgeryIntensity } from '../lib/prompt';
 
 export type Treatment = {
   id: string;
