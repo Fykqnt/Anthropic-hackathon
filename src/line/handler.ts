@@ -9,6 +9,15 @@ function getUserId(ev: LineEvent): string | undefined {
 export async function handleEvents(events: LineEvent[], deps: Deps): Promise<void> {
   for (const ev of events) {
     try {
+      // Follow (友だち追加) 時にガイダンスを送信
+      if (ev.type === 'follow' && (ev as any).replyToken) {
+        const msg: TextMessage = {
+          type: 'text',
+          text: '顔写真を貼ってください！整形のシミュレーションを実施いたします。',
+        };
+        await deps.replyMessage((ev as any).replyToken, { messages: [msg] });
+        continue;
+      }
       if (ev.type === 'message' && ev.message?.type === 'image') {
         const userId = getUserId(ev);
         if (!userId) continue;
@@ -77,10 +86,10 @@ export async function handleEvents(events: LineEvent[], deps: Deps): Promise<voi
         continue;
       }
 
-      // Fallback
+      // Fallback: 非画像メッセージなど
       if ((ev as any).replyToken) {
         await deps.replyMessage((ev as any).replyToken, {
-          messages: [{ type: 'text', text: '写真を送信すると施術候補を提案します。' }],
+          messages: [{ type: 'text', text: '顔写真を貼ってください！整形のシミュレーションを実施いたします。' }],
         });
       }
     } catch (e) {

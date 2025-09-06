@@ -76,4 +76,24 @@ describe('handleEvents', () => {
     const payload = (deps.replyMessage as any).mock.calls[0][1];
     expect(payload).toMatchObject({ messages: [ { type: 'text' } ] });
   });
+
+  it('follow event -> sends guidance message', async () => {
+    const events: LineEvent[] = [
+      { type: 'follow', replyToken: 'rf', source: { type: 'user', userId: 'U2' }, timestamp: Date.now() } as any,
+    ];
+    await handleEvents(events, deps);
+    expect(deps.replyMessage).toHaveBeenCalled();
+    const payload = (deps.replyMessage as any).mock.calls[0][1];
+    expect(payload).toMatchObject({ messages: [ { type: 'text' } ] });
+  });
+
+  it('non-image message -> sends guidance message via fallback', async () => {
+    const events: LineEvent[] = [
+      { type: 'message', replyToken: 'rm', source: { type: 'user', userId: 'U3' }, timestamp: Date.now(), message: { id: 't1', type: 'text' } } as any,
+    ];
+    await handleEvents(events, deps);
+    expect(deps.replyMessage).toHaveBeenCalled();
+    const payload = (deps.replyMessage as any).mock.calls[0][1];
+    expect(payload).toMatchObject({ messages: [ { type: 'text' } ] });
+  });
 });
