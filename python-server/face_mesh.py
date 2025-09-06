@@ -4,6 +4,7 @@ from PIL import Image
 import mediapipe as mp
 import trimesh
 from typing import Optional, Dict, Any, Tuple, List
+from config import config
 import logging
 import io
 import matplotlib.pyplot as plt
@@ -147,13 +148,28 @@ class FaceMeshProcessor:
         # より効率的な面生成：Delaunay三角分割を使用
         faces = self._generate_triangular_faces(vertices)
         
-        # trimeshオブジェクトを作成
+        # trimeshオブジェクトを作成（画像ピクセル座標のまま保持）
         mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
-        
-        # メッシュを正規化（原点中心、単位スケール）
-        mesh.vertices -= mesh.vertices.mean(axis=0)
-        mesh.vertices /= np.linalg.norm(mesh.vertices, axis=1).max()
-        
+        # 元画像サイズ・スケール情報をメタデータとして保持
+        try:
+            mesh.metadata = getattr(mesh, 'metadata', {}) or {}
+            mesh.metadata['image_size'] = (int(width), int(height))
+            # 推定px/mm（瞳孔間距離ベース）
+            # MediaPipeの代表点: 左目外側(33)と右目外側(362)
+            try:
+                left = landmarks.landmark[33]
+                right = landmarks.landmark[362]
+                lx, ly = left.x * width, left.y * height
+                rx, ry = right.x * width, right.y * height
+                ipd_px = float(np.hypot(lx - rx, ly - ry))
+                ipd_mm = float(config.get_assumptions().get('ipd_mm_default', 63.0))
+                px_per_mm = ipd_px / max(1e-6, ipd_mm)
+                mesh.metadata['px_per_mm'] = px_per_mm
+            except Exception:
+                # フォールバック
+                mesh.metadata['px_per_mm'] = 12.5
+        except Exception:
+            pass
         return mesh
     
     def _generate_triangular_faces(self, vertices: np.ndarray) -> List[List[int]]:
@@ -216,54 +232,134 @@ class FaceMeshProcessor:
     
 
 
-    def visualize_mesh(self, mesh, canvas_size=(800, 600), draw_indices=True, use_faces=True):
+    def visualize_mesh(self, mesh, canvas_size=(800, 600), draw_indices=True, use_faces=True, background_image: Optional[Image.Image]=None, alpha_wire=0.7, draw_points: bool = True):
         """
         2D 正射影でワイヤーフレームを描く。
         - mesh.vertices: (N,3)
         - mesh.faces: (M,3) があるなら三角形で描く。無ければ既定の接続で線分描画。
         """
-        W, H = canvas_size
+        # 背景画像がある場合は背景画像サイズを優先
+        if background_image is not None:
+            W, H = background_image.size
+        else:
+            W, H = canvas_size
 
         verts = np.asarray(mesh.vertices)  # (N,3)
         x = verts[:, 0]
         y = verts[:, 1]
 
-        # 画像座標系に合わせてYを反転（上が0）
-        # もし x,y が 0..1 正規化ならこのままスケール、そうでない場合は min-max 正規化
-        def _minmax(v):
-            vmin, vmax = float(v.min()), float(v.max())
-            return (v - vmin) / max(1e-8, (vmax - vmin))
-         # 正規化チェック（0..1 に収まっていなければ正規化してしまう）
-        if not (0.0 <= x.min() and x.max() <= 1.0 and 0.0 <= y.min() and y.max() <= 1.0):
+        # スケーリング方針:
+        # - 背景画像あり or メタデータ(image_size)あり: ピクセル座標としてスケール
+        # - それ以外: 0..1 正規化とみなしてキャンバスにスケール
+        img_w, img_h = None, None
+        if hasattr(mesh, 'metadata') and isinstance(getattr(mesh, 'metadata'), dict):
+            size_meta = mesh.metadata.get('image_size')
+            if isinstance(size_meta, (list, tuple)) and len(size_meta) == 2:
+                img_w, img_h = int(size_meta[0]), int(size_meta[1])
+
+        if background_image is not None:
+            # OpenCVで背景に直接オーバーレイ（画像座標: 上=0, 左=0）
+            bg = background_image.convert('RGB')
+            W, H = bg.size
+            img = np.array(bg.resize((W, H)))
+
+            # メタデータの原画像サイズがあればスケール
+            if not (img_w and img_h):
+                img_w, img_h = W, H
+            scale_x = float(W) / float(img_w)
+            scale_y = float(H) / float(img_h)
+            Xp = (x * scale_x).astype(np.int32)
+            Yp = (y * scale_y).astype(np.int32)
+
+            # ワイヤー描画
+            line_color = (255, 127, 0)  # BGR: 青系より視認性の高い色
+            alpha = max(0.1, min(1.0, float(alpha_wire)))
+            thickness = 1
+
+            try:
+                import cv2
+                img_draw = img.copy()
+                if use_faces and hasattr(mesh, 'faces') and mesh.faces is not None and len(mesh.faces) > 0:
+                    faces = np.asarray(mesh.faces, dtype=np.int32)
+                    for tri in faces:
+                        i, j, k = int(tri[0]), int(tri[1]), int(tri[2])
+                        if i < len(Xp) and j < len(Xp) and k < len(Xp):
+                            cv2.line(img_draw, (int(Xp[i]), int(Yp[i])), (int(Xp[j]), int(Yp[j])), line_color, thickness)
+                            cv2.line(img_draw, (int(Xp[j]), int(Yp[j])), (int(Xp[k]), int(Yp[k])), line_color, thickness)
+                            cv2.line(img_draw, (int(Xp[k]), int(Yp[k])), (int(Xp[i]), int(Yp[i])), line_color, thickness)
+                else:
+                    try:
+                        from mediapipe.python.solutions.face_mesh_connections import FACEMESH_TESSELATION
+                        for (i, j) in FACEMESH_TESSELATION:
+                            if i < len(Xp) and j < len(Xp):
+                                cv2.line(img_draw, (int(Xp[i]), int(Yp[i])), (int(Xp[j]), int(Yp[j])), line_color, thickness)
+                    except Exception:
+                        pass
+
+                if draw_points:
+                    for xi, yi in zip(Xp, Yp):
+                        cv2.circle(img_draw, (int(xi), int(yi)), 1, (0, 200, 255), -1)
+
+                # 透明合成（ワイヤーを薄く）
+                img = cv2.addWeighted(img_draw, alpha, img, 1.0 - alpha, 0)
+
+                # インデックスは背景オーバーレイ時はデフォルト非表示（draw_indices=False推奨）
+                if draw_indices:
+                    for idx, (xi, yi) in enumerate(zip(Xp, Yp)):
+                        cv2.putText(img, str(idx), (int(xi), int(yi)), cv2.FONT_HERSHEY_SIMPLEX, 0.25, (0, 0, 0), 1, cv2.LINE_AA)
+
+                return Image.fromarray(img)
+            except Exception as e:
+                logger.warning(f"OpenCV overlay failed, fallback to matplotlib: {e}")
+                # フォールバックは下のmatplotlib描画に続行
+
+        if (img_w and img_h):
+            # ピクセル座標 → キャンバス座標へ等方スケール（軸別スケール）
+            scale_x = float(W) / float(img_w)
+            scale_y = float(H) / float(img_h)
+            Xp = x * scale_x
+            Yp = H - (y * scale_y)
+        else:
+            # 0..1 正規化として扱う
+            def _minmax(v):
+                vmin, vmax = float(v.min()), float(v.max())
+                return (v - vmin) / max(1e-8, (vmax - vmin))
             x = _minmax(x)
             y = _minmax(y)
-        Xp = x * W
-        # Y座標を正しく変換：MediaPipeは画像座標系（上が0）でランドマークを返す
-        # matplotlibで保存する時は上下反転が必要
-        Yp = H - (y * H)  # 上下反転を適用
+            Xp = x * W
+            Yp = H - (y * H)
         fig = plt.figure(figsize=(W/100.0, H/100.0), dpi=100)
         ax = plt.gca()
         ax.set_xlim(0, W)
-        ax.set_ylim(0, H)  # matplotlibの標準座標系（下が0、上がH）
+        ax.set_ylim(0, H)
         ax.axis('off')
+
+        # 背景に元画像を表示（存在する場合）
+        if background_image is not None:
+            try:
+                bg = background_image.convert('RGB').resize((W, H))
+                ax.imshow(bg, extent=[0, W, 0, H], origin='upper')
+            except Exception as e:
+                logger.warning(f"Failed to draw background image: {e}")
 
         if use_faces and hasattr(mesh, "faces") and mesh.faces is not None and len(mesh.faces) > 0:
             # 三角形でワイヤーフレーム
             import matplotlib.tri as mtri
             triang = mtri.Triangulation(Xp, Yp, triangles=mesh.faces)
-            ax.triplot(triang, linewidth=0.4)
+            ax.triplot(triang, linewidth=0.6, color=(0.0, 0.5, 1.0, alpha_wire))
         else:
             # 既定の接続で線分を描く（MediaPipe の接続を利用）
             try:
                 from mediapipe.python.solutions.face_mesh_connections import FACEMESH_TESSELATION
                 for (i, j) in FACEMESH_TESSELATION:
-                    ax.plot([Xp[i], Xp[j]], [Yp[i], Yp[j]], linewidth=0.2)
+                    ax.plot([Xp[i], Xp[j]], [Yp[i], Yp[j]], linewidth=0.3, color=(0.0, 0.5, 1.0, alpha_wire))
             except Exception:
                 # 接続が無い場合は点だけ
                 pass
 
         # 点を薄く重ねる
-        ax.scatter(Xp, Yp, s=5, c='blue', alpha=0.6)
+        if draw_points:
+            ax.scatter(Xp, Yp, s=3, c=(0.0, 0.5, 1.0, min(alpha_wire, 0.5)))
 
         # インデックス表示（小さく）
         if draw_indices:
@@ -272,9 +368,8 @@ class FaceMeshProcessor:
 
         # 画像として返す
         buf = io.BytesIO()
-        plt.tight_layout(pad=0)
         fig.canvas.draw()
-        fig.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+        fig.savefig(buf, format='png', pad_inches=0)
         plt.close(fig)
         buf.seek(0)
         return Image.open(buf)    

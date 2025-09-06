@@ -171,8 +171,10 @@ async def visualize_mesh(
         if not face_mesh:
             raise HTTPException(status_code=400, detail="Failed to detect face or build mesh")
         
-        # メッシュを可視化
-        mesh_image = processors["face_processor"].visualize_mesh(face_mesh, (800, 600))
+        # メッシュを可視化（元画像に重ね描き）
+        mesh_image = processors["face_processor"].visualize_mesh(
+            face_mesh, (800, 600), background_image=pil_image, draw_indices=False
+        )
         
         # 画像をbase64エンコード
         buffered = io.BytesIO()
@@ -270,8 +272,10 @@ async def deform_mesh(
         # メッシュを変形
         deformed_mesh = await processors["mesh_editor"].edit_mesh(face_mesh, operations)
         
-        # 変形後のメッシュを可視化
-        mesh_image = processors["face_processor"].visualize_mesh(deformed_mesh, (800, 600))
+        # 変形後のメッシュを可視化（元画像に重ね描き）
+        mesh_image = processors["face_processor"].visualize_mesh(
+            deformed_mesh, (800, 600), background_image=pil_image, draw_indices=False
+        )
         
         # 画像をbase64エンコード
         buffered = io.BytesIO()
@@ -294,6 +298,111 @@ async def deform_mesh(
     except Exception as e:
         logger.error(f"Error deforming mesh: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Mesh deformation failed: {str(e)}")
+
+# --- 画像Aのメッシュを画像Bへ重ねるための補助 ---
+def _get_keypoints_px(landmarks, width: int, height: int) -> np.ndarray:
+    """左目中心, 右目中心, 鼻尖 をピクセル座標で返す (3,2)"""
+    left_ids = [33, 7, 163, 144]
+    right_ids = [362, 382, 380, 374]
+    nose_ids = [1]
+
+    def _avg(ids):
+        xs = [landmarks.landmark[i].x * width for i in ids]
+        ys = [landmarks.landmark[i].y * height for i in ids]
+        return np.array([float(np.mean(xs)), float(np.mean(ys))], dtype=np.float64)
+
+    left_eye = _avg(left_ids)
+    right_eye = _avg(right_ids)
+    nose_tip = _avg(nose_ids)
+    return np.stack([left_eye, right_eye, nose_tip], axis=0)
+
+def _estimate_similarity(A: np.ndarray, B: np.ndarray):
+    """A( N,2 ) -> B( N,2 ) の相似変換 (R(2x2), s, t(1x2)) を推定"""
+    if A.shape != B.shape or A.shape[0] < 2:
+        raise ValueError("Need >=2 corresponding points of same shape")
+    muA = A.mean(axis=0)
+    muB = B.mean(axis=0)
+    Ac = A - muA
+    Bc = B - muB
+    S = Ac.T @ Bc / A.shape[0]
+    U, svals, Vt = np.linalg.svd(S)
+    R = Vt.T @ U.T
+    if np.linalg.det(R) < 0:
+        Vt[-1, :] *= -1
+        R = Vt.T @ U.T
+    varA = np.sum(Ac ** 2) / A.shape[0]
+    scale = np.sum(svals) / max(1e-8, varA)
+    t = muB - scale * (muA @ R)
+    return R, float(scale), t
+
+@app.post("/mesh/overlay")
+async def overlay_mesh(
+    source_image: UploadFile = File(...),
+    target_image: UploadFile = File(...),
+    consent: bool = Form(False),
+    processors: Dict = Depends(get_processors)
+):
+    """画像Aで作成したメッシュを、画像Bの顔に相似変換で合わせて重ねる"""
+    try:
+        if not consent:
+            raise HTTPException(status_code=400, detail="Consent is required")
+
+        src_bytes = await source_image.read()
+        tgt_bytes = await target_image.read()
+        src_pil = Image.open(io.BytesIO(src_bytes)).convert('RGB')
+        tgt_pil = Image.open(io.BytesIO(tgt_bytes)).convert('RGB')
+
+        # 画像Aからメッシュ構築
+        src_mesh = await processors["face_processor"].build_mesh(src_pil)
+        if src_mesh is None:
+            raise HTTPException(status_code=400, detail="Failed to build mesh from source image")
+
+        # A/Bのランドマーク抽出
+        import cv2
+        src_cv = cv2.cvtColor(np.array(src_pil), cv2.COLOR_RGB2BGR)
+        tgt_cv = cv2.cvtColor(np.array(tgt_pil), cv2.COLOR_RGB2BGR)
+        src_res = processors["face_processor"].face_mesh.process(src_cv)
+        tgt_res = processors["face_processor"].face_mesh.process(tgt_cv)
+        if not src_res.multi_face_landmarks or not tgt_res.multi_face_landmarks:
+            raise HTTPException(status_code=400, detail="Failed to detect face on one of images")
+
+        src_lm = src_res.multi_face_landmarks[0]
+        tgt_lm = tgt_res.multi_face_landmarks[0]
+        sh, sw = src_cv.shape[:2]
+        th, tw = tgt_cv.shape[:2]
+        A = _get_keypoints_px(src_lm, sw, sh)
+        B = _get_keypoints_px(tgt_lm, tw, th)
+
+        # 相似変換推定
+        R, s, t = _estimate_similarity(A, B)
+
+        # メッシュ頂点XYへ適用
+        verts = src_mesh.vertices.copy()
+        XY = verts[:, :2]
+        XYt = s * (XY @ R) + t
+        verts[:, :2] = XYt
+
+        import trimesh
+        aligned_mesh = trimesh.Trimesh(vertices=verts, faces=src_mesh.faces)
+
+        # 画像Bへ重ね描き
+        over_img = processors["face_processor"].visualize_mesh(
+            aligned_mesh, (tgt_pil.size[0], tgt_pil.size[1]), background_image=tgt_pil, draw_indices=False
+        )
+
+        buf = io.BytesIO()
+        over_img.save(buf, format='PNG')
+        img_b64 = base64.b64encode(buf.getvalue()).decode()
+
+        return JSONResponse({
+            "success": True,
+            "mesh_image": f"data:image/png;base64,{img_b64}",
+            "info": {"source_size": src_pil.size, "target_size": tgt_pil.size, "scale": s}
+        })
+
+    except Exception as e:
+        logger.error(f"Error overlaying mesh: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Mesh overlay failed: {str(e)}")
 
 @app.post("/edit/parse")
 async def parse_edit_instruction(
