@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { SurgeryIntensity, surgeryOptions, defaultIntensities, generateSurgeryPrompt, getIntensityLabel, getIntensityColor } from "./prompt";
+import { SurgeryIntensity, surgeryOptions, defaultIntensities, generateSurgeryPrompt, getIntensityLabel, getIntensityColor, PROMPT_VERSION } from "@/lib/prompt";
 
 export default function Home() {
   const [intensities, setIntensities] = useState<SurgeryIntensity>(defaultIntensities);
@@ -16,6 +16,10 @@ export default function Home() {
   const [generatedPrompt, setGeneratedPrompt] = useState("");
   const [showComparison, setShowComparison] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [generationId, setGenerationId] = useState<string | null>(null);
+  const [feedbackReason, setFeedbackReason] = useState<string>("");
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -60,6 +64,32 @@ export default function Home() {
     };
   }, [originalImageUrl]);
 
+  useEffect(() => {
+    if (image && !feedbackSubmitted) {
+      const t = setTimeout(() => setShowFeedbackModal(true), 10000);
+      return () => clearTimeout(t);
+    }
+    setShowFeedbackModal(false);
+  }, [image, feedbackSubmitted]);
+
+  const submitFeedback = useCallback(async (rating: 1 | -1) => {
+    try {
+      if (generationId) {
+        await fetch("/api/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ generationId, rating: rating === 1 ? 1 : 0, reason: feedbackReason || undefined }),
+        });
+      } else {
+        console.log("feedback(no-genId)", { rating, at: new Date().toISOString() });
+      }
+    } finally {
+      setFeedbackSubmitted(true);
+      setShowFeedbackModal(false);
+      setFeedbackReason("");
+    }
+  }, [generationId, feedbackReason]);
+
   const handleIntensityChange = (key: keyof SurgeryIntensity, value: number) => {
     setIntensities(prev => ({
       ...prev,
@@ -72,6 +102,9 @@ export default function Home() {
     setError(null);
     setSuccess(null);
     setImage(null);
+    setShowFeedbackModal(false);
+    setFeedbackSubmitted(false);
+    setGenerationId(null);
     try {
       if (!file) throw new Error("写真をアップロードしてください");
       const form = new FormData();
@@ -85,6 +118,21 @@ export default function Home() {
       if (!res.ok) throw new Error(data?.error || "シミュレーションに失敗しました");
       setImage(data.image);
       setSuccess("美容整形シミュレーションが完了しました！");
+      // Record generation meta to Supabase
+      try {
+        const genRes = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            procedure: "face",
+            intensities,
+            model: "gemini-2.5-flash-image-preview",
+            promptVersion: PROMPT_VERSION,
+          }),
+        });
+        const genData = await genRes.json();
+        if (genRes.ok && genData?.generationId) setGenerationId(genData.generationId);
+      } catch {}
     } catch (err) {
       const error = err as unknown as { message?: string };
       setError(error?.message || "予期しないエラーが発生しました");
@@ -438,7 +486,46 @@ export default function Home() {
           </section>
         )}
 
-        
+        {showFeedbackModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/40" />
+            <div className="relative z-10 bg-white rounded-2xl shadow-xl max-w-sm w-[90%] p-6">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-pink-500 rounded-lg flex items-center justify-center">✨</div>
+                  <h3 className="text-lg font-semibold text-gray-800">この結果は役に立ちましたか？</h3>
+                </div>
+              </div>
+              <p className="text-sm text-gray-600 mb-4">
+                アプリ改善のため、フィードバックをお願いします。
+              </p>
+              <div className="mb-4">
+                <label className="block text-xs text-gray-500 mb-1">任意の理由（改善に役立つメモ）</label>
+                <textarea
+                  className="w-full border rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-300"
+                  rows={3}
+                  placeholder="（例）鼻筋が不自然／肌が滑らかすぎる 等"
+                  value={feedbackReason}
+                  onChange={(e) => setFeedbackReason(e.target.value)}
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  className="btn-primary px-4 py-2 text-sm flex-1 flex items-center justify-center gap-2"
+                  onClick={() => submitFeedback(1)}
+                >
+                  👍 納得
+                </button>
+                <button
+                  className="px-4 py-2 text-sm flex-1 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  onClick={() => submitFeedback(-1)}
+                >
+                  👎 イマイチ
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
