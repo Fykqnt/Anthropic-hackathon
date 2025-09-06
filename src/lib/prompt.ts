@@ -4,7 +4,7 @@ export const BasePrompt = {
   version: "v1",
   guidance: {
     nose: { bridge: "鼻筋は直線的に整える。" },
-    skin: { texture: "毛穴を過度に消さず、自然な質感を保つ。" },
+    skin: { texture: "元の写真から変更させない。" },
   },
 } as const;
 
@@ -149,7 +149,7 @@ export function generateSurgeryPrompt(intensities: SurgeryIntensity): string {
     return "この画像の美容整形シミュレーションをします。変更なし（自然な状態を維持）";
   }
 
-  let prompt = "この画像の美容整形シミュレーションをします。変更を行う箇所のみを変化させることに集中してください。肌質を変化させずに、以下の施術を適用してください：\n\n";
+  let prompt = "この画像の美容整形シミュレーションをします。変更を行う箇所のみを変化させることに集中してください。肌質や歯の色を変化させずに、以下の施術を適用してください：\n\n";
   
   activeOperations.forEach((option, index) => {
     const intensity = intensities[option.key];
