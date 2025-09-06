@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     }
 
     const bytes = Buffer.from(await file.arrayBuffer());
-    let mimeType = file.type || "image/png";
+    const mimeType = file.type || "image/png";
     // Gemini image inputs require raster formats (e.g., png/jpeg). Reject svg.
     if (mimeType === "image/svg+xml") {
       return NextResponse.json(
@@ -67,11 +67,13 @@ export async function POST(req: Request) {
     // Scan all candidates/parts for an image
     let data: string | undefined;
     const candidates = response?.candidates ?? [];
+    type Part = { inlineData?: { data?: unknown; mimeType?: string } } | { text?: string } | Record<string, unknown>;
     for (const cand of candidates) {
-      const parts = cand?.content?.parts ?? [];
+      const parts: Part[] = (cand?.content?.parts ?? []) as Part[];
       for (const part of parts) {
-        if ((part as any)?.inlineData?.data) {
-          data = (part as any).inlineData.data as string;
+        const inline = (part as { inlineData?: { data?: unknown } }).inlineData;
+        if (inline && typeof inline.data === "string") {
+          data = inline.data;
           break;
         }
       }
@@ -80,16 +82,17 @@ export async function POST(req: Request) {
     if (!data) {
       console.debug("/api/edit-image no-image", JSON.stringify({
         hasCandidates: !!candidates.length,
-        firstPartsKinds: candidates[0]?.content?.parts?.map((p: any) => Object.keys(p)) ?? [],
+        firstPartsKinds: (candidates[0]?.content?.parts as Record<string, unknown>[] | undefined)?.map((p) => Object.keys(p)) ?? [],
       }));
       return NextResponse.json({ error: "No edited image returned from the model" }, { status: 500 });
     }
 
     return NextResponse.json({ image: `data:${mimeType};base64,${data}` });
-  } catch (err: any) {
+  } catch (err) {
+    const error = err as unknown as { message?: string };
     console.error("/api/edit-image error", err);
     return NextResponse.json(
-      { error: err?.message || "Unexpected error editing image" },
+      { error: error?.message || "Unexpected error editing image" },
       { status: 500 }
     );
   }

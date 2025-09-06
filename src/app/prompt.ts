@@ -62,7 +62,7 @@ export function generateSurgeryPrompt(intensities: SurgeryIntensity): string {
     return "この画像の美容整形シミュレーションをします。変更なし（自然な状態を維持）";
   }
 
-  let prompt = "この画像の美容整形シミュレーションをします。肌の状態を維持しながら以下の施術を適用してください：\n\n";
+  let prompt = "この画像の美容整形シミュレーションをします。変更を行う箇所のみを変化させることに集中してください。肌質を変化させずに、以下の施術を適用してください：\n\n";
   
   activeOperations.forEach((option, index) => {
     const intensity = intensities[option.key];

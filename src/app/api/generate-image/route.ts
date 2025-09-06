@@ -25,9 +25,10 @@ export async function POST(req: Request) {
       contents: prompt,
     });
 
-    const parts = response?.candidates?.[0]?.content?.parts ?? [];
-    const imagePart = parts.find((p: any) => p.inlineData && p.inlineData.data);
-    const data = imagePart?.inlineData?.data as string | undefined;
+    type InlineDataPart = { inlineData?: { data?: unknown; mimeType?: string } };
+    const parts = (response?.candidates?.[0]?.content?.parts ?? []) as InlineDataPart[];
+    const imagePart = parts.find((p) => p.inlineData && typeof p.inlineData.data === "string");
+    const data = (imagePart?.inlineData?.data as string | undefined) ?? undefined;
     const mimeType = imagePart?.inlineData?.mimeType || "image/png";
 
     if (!data) {
@@ -38,10 +39,11 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ image: `data:${mimeType};base64,${data}` });
-  } catch (err: any) {
+  } catch (err) {
+    const error = err as unknown as { message?: string };
     console.error("/api/generate-image error", err);
     return NextResponse.json(
-      { error: err?.message || "Unexpected error generating image" },
+      { error: error?.message || "Unexpected error generating image" },
       { status: 500 }
     );
   }
