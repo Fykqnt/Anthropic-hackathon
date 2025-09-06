@@ -9,6 +9,9 @@ export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [overlayImage, setOverlayImage] = useState<string | null>(null);
+  const [overlayLoading, setOverlayLoading] = useState(false);
+  const [overlayError, setOverlayError] = useState<string | null>(null);
   
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -59,6 +62,65 @@ export default function Home() {
       }
     };
   }, [originalImageUrl]);
+
+  // Python server base URL
+  // Backendへの直接アクセスはCORSになるためNext.js経由の同一オリジンAPIを使用
+  const OVERLAY_API = "/api/mesh-overlay";
+
+  // Convert data URL to File
+  async function dataUrlToFile(dataUrl: string, filename: string, mimeTypeFallback = "image/png"): Promise<File> {
+    const arr = dataUrl.split(',');
+    const mimeMatch = arr[0]?.match(/data:(.*?);base64/);
+    const mime = (mimeMatch && mimeMatch[1]) || mimeTypeFallback;
+    const bstr = atob(arr[1] ?? "");
+    const n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      u8arr[i] = bstr.charCodeAt(i);
+    }
+    return new File([u8arr], filename, { type: mime });
+  }
+
+  const fetchOverlay = useCallback(async () => {
+    try {
+      if (!file || !image) return;
+      setOverlayError(null);
+      setOverlayLoading(true);
+      setOverlayImage(null);
+
+      const afterFile = await dataUrlToFile(image, "after.png");
+      const form = new FormData();
+      form.set("source_image", file); // before
+      form.set("target_image", afterFile); // after
+      form.set("consent", "true");
+      form.set("swap", "false"); // before -> after に重ねる
+
+      const res = await fetch(OVERLAY_API, { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.detail || data?.error || "overlay生成に失敗しました");
+      }
+      const meshImage: string | undefined = data?.mesh_image;
+      if (!meshImage) throw new Error("mesh_imageが空です");
+      setOverlayImage(meshImage);
+    } catch (e) {
+      const err = e as { message?: string };
+      setOverlayError(err?.message || "overlay生成に失敗しました");
+    } finally {
+      setOverlayLoading(false);
+    }
+  }, [OVERLAY_API, file, image]);
+
+  // 画像生成後に自動でオーバーレイ生成
+  useEffect(() => {
+    if (image && file) {
+      void fetchOverlay();
+    } else {
+      setOverlayImage(null);
+      setOverlayError(null);
+      setOverlayLoading(false);
+    }
+  }, [image, file, fetchOverlay]);
 
   const handleIntensityChange = (key: keyof SurgeryIntensity, value: number) => {
     setIntensities(prev => ({
@@ -413,6 +475,41 @@ export default function Home() {
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors duration-300 rounded-xl"></div>
                 </div>
               )}
+
+              {/* Overlay: Before Mesh on After Image */}
+              <div className="mt-10 space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm font-bold">
+                    O
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-800">BeforeのメッシュをAfterに重ねた画像</h3>
+                </div>
+
+                {overlayLoading && (
+                  <div className="status-loading fade-in">
+                    <div className="loading-spinner"></div>
+                    <span>オーバーレイ画像を生成中です...</span>
+                  </div>
+                )}
+
+                {!overlayLoading && overlayError && (
+                  <div className="status-error fade-in flex items-center justify-between">
+                    <span>{overlayError}</span>
+                    <button onClick={() => void fetchOverlay()} className="btn-primary px-3 py-2 text-sm">再試行</button>
+                  </div>
+                )}
+
+                {!overlayLoading && overlayImage && (
+                  <div className="relative group aspect-square">
+                    <img
+                      src={overlayImage}
+                      alt="Beforeメッシュのオーバーレイ"
+                      className="w-full h-full object-cover rounded-xl shadow-lg transition-transform duration-300 group-hover:scale-[1.02]"
+                    />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors duration-300 rounded-xl"></div>
+                  </div>
+                )}
+              </div>
               
               {/* Applied Surgery Summary */}
               <div className="mt-6 bg-gray-50 rounded-xl p-4">
