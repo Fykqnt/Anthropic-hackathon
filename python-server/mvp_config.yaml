@@ -1,0 +1,102 @@
+# MVP設定ファイル - 美容整形シミュレーション
+app_name: "CosmeticSim-MVP"
+version: "0.1.0"
+
+# 対象とする施術部位
+targets:
+  - nasal_tip_mm      # 鼻尖（前方移動）
+  - nasal_bridge_mm   # 鼻筋（高さ調整）
+  - eye_size_ratio    # 目（サイズ調整）
+  - jaw_width_mm      # 顎幅（細くする）
+  - lip_thickness_mm  # 唇（厚さ調整）
+  - cheek_contour_mm  # 頬（引き締め）
+  - forehead_width_mm # 額幅（広くする）
+
+# 顔の計測に関する仮定値
+assumptions:
+  ipd_mm_default: 63.0     # 瞳間距離の平均（mm）
+  px_per_mm_fallback: auto # 顔幅/目幅から推定（なければIPDで近似）
+  
+  # 各部位の変形パラメータ
+  nasal_tip_radius_mm: 12
+  nasal_tip_sigma_mm: 8
+  nasal_bridge_radius_mm: 10
+  nasal_bridge_sigma_mm: 6
+  
+  eye_size_radius_mm: 15
+  eye_size_sigma_mm: 10
+  
+  jaw_width_radius_mm: 20
+  jaw_width_sigma_mm: 12
+  
+  lip_thickness_radius_mm: 8
+  lip_thickness_sigma_mm: 5
+  
+  cheek_contour_radius_mm: 18
+  cheek_contour_sigma_mm: 10
+  
+  forehead_width_radius_mm: 25
+  forehead_width_sigma_mm: 15
+
+# 制限値
+limits:
+  max_delta_mm: 4.0        # 最大変形量（mm）
+  min_delta_mm: -4.0       # 最小変形量（mm）
+  max_image_mb: 10         # 最大画像サイズ（MB）
+  min_image_px: 1024       # 最小画像解像度（ピクセル）
+  max_processing_time_sec: 120  # 最大処理時間（秒）
+
+# レンダリング設定
+render:
+  guides: [depth, normal, displacement, mask]  # 生成するガイド画像
+  out_px: 1024              # 出力画像解像度
+  quality: "high"           # レンダリング品質
+  anti_aliasing: true       # アンチエイリアシング
+
+# Nano Banana設定
+nano_banana:
+  mode: "image_edit"        # 画像編集モード
+  retries: 2                # リトライ回数
+  strength_schedule: [1.0, 0.7, 0.5]  # 強度スケジュール
+  timeout_sec: 60           # APIタイムアウト（秒）
+
+# 安全設定
+safety:
+  require_consent: true     # 同意確認が必要
+  block_celeb_style_transfer: true  # 有名人スタイル転送をブロック
+  content_filter: "strict"  # コンテンツフィルター設定
+  age_verification: false   # 年齢確認（将来実装）
+
+# ログ設定
+logging:
+  keep_sec: 3600           # ログ保持時間（秒）
+  export: ["face.glb", "params.json", "after.png"]  # エクスポートファイル
+  level: "INFO"            # ログレベル
+  max_file_size_mb: 100    # 最大ログファイルサイズ（MB）
+
+# API設定
+api:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 1
+  timeout: 120
+  cors_origins: ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+# データベース設定（将来実装用）
+database:
+  type: "sqlite"           # デフォルトはSQLite
+  path: "data/cosmetic_sim.db"
+  backup_enabled: false
+
+# キャッシュ設定
+cache:
+  enabled: true
+  ttl_sec: 3600           # キャッシュ有効期限（秒）
+  max_size_mb: 500        # 最大キャッシュサイズ（MB）
+
+# 開発設定
+development:
+  debug: true
+  hot_reload: true
+  mock_nano_banana: false  # Nano Banana APIをモックするか
+  save_debug_images: true  # デバッグ画像を保存するか
