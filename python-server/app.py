@@ -340,6 +340,7 @@ async def overlay_mesh(
     source_image: UploadFile = File(...),
     target_image: UploadFile = File(...),
     consent: bool = Form(False),
+    swap: bool = Form(True),  # 既定で target→source に重ねる
     processors: Dict = Depends(get_processors)
 ):
     """画像Aで作成したメッシュを、画像Bの顔に相似変換で合わせて重ねる"""
@@ -351,11 +352,6 @@ async def overlay_mesh(
         tgt_bytes = await target_image.read()
         src_pil = Image.open(io.BytesIO(src_bytes)).convert('RGB')
         tgt_pil = Image.open(io.BytesIO(tgt_bytes)).convert('RGB')
-
-        # 画像Aからメッシュ構築
-        src_mesh = await processors["face_processor"].build_mesh(src_pil)
-        if src_mesh is None:
-            raise HTTPException(status_code=400, detail="Failed to build mesh from source image")
 
         # A/Bのランドマーク抽出
         import cv2
@@ -370,25 +366,40 @@ async def overlay_mesh(
         tgt_lm = tgt_res.multi_face_landmarks[0]
         sh, sw = src_cv.shape[:2]
         th, tw = tgt_cv.shape[:2]
-        A = _get_keypoints_px(src_lm, sw, sh)
-        B = _get_keypoints_px(tgt_lm, tw, th)
-
-        # 相似変換推定
-        R, s, t = _estimate_similarity(A, B)
-
-        # メッシュ頂点XYへ適用
-        verts = src_mesh.vertices.copy()
-        XY = verts[:, :2]
-        XYt = s * (XY @ R) + t
-        verts[:, :2] = XYt
-
-        import trimesh
-        aligned_mesh = trimesh.Trimesh(vertices=verts, faces=src_mesh.faces)
-
-        # 画像Bへ重ね描き
-        over_img = processors["face_processor"].visualize_mesh(
-            aligned_mesh, (tgt_pil.size[0], tgt_pil.size[1]), background_image=tgt_pil, draw_indices=False
-        )
+        if not swap:
+            # source のメッシュを target へ重ねる（デフォルト）
+            src_mesh = await processors["face_processor"].build_mesh(src_pil)
+            if src_mesh is None:
+                raise HTTPException(status_code=400, detail="Failed to build mesh from source image")
+            A = _get_keypoints_px(src_lm, sw, sh)
+            B = _get_keypoints_px(tgt_lm, tw, th)
+            R, s, t = _estimate_similarity(A, B)
+            verts = src_mesh.vertices.copy()
+            XY = verts[:, :2]
+            XYt = s * (XY @ R) + t
+            verts[:, :2] = XYt
+            import trimesh
+            aligned_mesh = trimesh.Trimesh(vertices=verts, faces=src_mesh.faces)
+            over_img = processors["face_processor"].visualize_mesh(
+                aligned_mesh, (tgt_pil.size[0], tgt_pil.size[1]), background_image=tgt_pil, draw_indices=False
+            )
+        else:
+            # target のメッシュを source へ重ねる（反転）
+            tgt_mesh = await processors["face_processor"].build_mesh(tgt_pil)
+            if tgt_mesh is None:
+                raise HTTPException(status_code=400, detail="Failed to build mesh from target image")
+            A = _get_keypoints_px(tgt_lm, tw, th)
+            B = _get_keypoints_px(src_lm, sw, sh)
+            R, s, t = _estimate_similarity(A, B)
+            verts = tgt_mesh.vertices.copy()
+            XY = verts[:, :2]
+            XYt = s * (XY @ R) + t
+            verts[:, :2] = XYt
+            import trimesh
+            aligned_mesh = trimesh.Trimesh(vertices=verts, faces=tgt_mesh.faces)
+            over_img = processors["face_processor"].visualize_mesh(
+                aligned_mesh, (src_pil.size[0], src_pil.size[1]), background_image=src_pil, draw_indices=False
+            )
 
         buf = io.BytesIO()
         over_img.save(buf, format='PNG')
@@ -397,7 +408,7 @@ async def overlay_mesh(
         return JSONResponse({
             "success": True,
             "mesh_image": f"data:image/png;base64,{img_b64}",
-            "info": {"source_size": src_pil.size, "target_size": tgt_pil.size, "scale": s}
+            "info": {"source_size": src_pil.size, "target_size": tgt_pil.size, "scale": s, "swap": swap}
         })
 
     except Exception as e:
