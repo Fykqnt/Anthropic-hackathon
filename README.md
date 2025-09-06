@@ -47,6 +47,7 @@ Steps
   - `LINE_CHANNEL_SECRET=<from LINE Developers>`
   - `LINE_CHANNEL_ACCESS_TOKEN=<from LINE Developers>`
   - `PUBLIC_BASE_URL=https://<your-public-host>`
+  - `GEMINI_API_KEY=<Google AI Studio API key>`
 - Run: `pnpm dev`
 - Tunnel (optional): `ngrok http 3000`, set LINE Webhook URL to `<PUBLIC_BASE_URL>/api/line`.
 - Verify in LINE: add bot → send face image → receive treatment quick reply → pick one → get single edited image + rating quick reply.
