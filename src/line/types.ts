@@ -22,6 +22,7 @@ export type LineEvent = MessageEvent | PostbackEvent | { type: string; [k: strin
 
 export type Deps = {
   replyMessage: (replyToken: string, payload: any) => Promise<void>;
+  pushMessage: (to: string, payload: any) => Promise<void>;
   getMessageContent: (messageId: string) => Promise<ImageBlob>;
   editImageWithPrompt: (blob: ImageBlob, prompt: string) => Promise<{ dataUrl: string }>;
   store: ImageStore;

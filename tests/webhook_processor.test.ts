@@ -8,6 +8,7 @@ const secret = 'line_secret';
 
 const baseDeps = (): Deps => ({
   replyMessage: vi.fn(async () => {}),
+  pushMessage: vi.fn(async () => {}),
   getMessageContent: vi.fn(async () => ({ data: Buffer.from('img'), mimeType: 'image/png' })),
   editImageWithPrompt: vi.fn(async () => ({ dataUrl: 'data:image/png;base64,AAA' })),
   store: { set: vi.fn(async () => {}), get: vi.fn(async () => undefined) },
@@ -42,4 +43,3 @@ describe('processLineWebhook', () => {
     sp.mockRestore();
   });
 });
-

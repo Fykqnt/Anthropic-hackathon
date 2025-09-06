@@ -31,6 +31,17 @@ export function createLineClient(opts: { accessToken: string }) {
     return { data: buf, mimeType };
   }
 
-  return { replyMessage, getMessageContent };
-}
+  async function pushMessage(to: string, payload: any): Promise<void> {
+    const res = await fetch('https://api.line.me/v2/bot/message/push', {
+      method: 'POST',
+      headers: { ...baseHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to, ...payload }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.error('LINE pushMessage failed', res.status, text);
+    }
+  }
 
+  return { replyMessage, getMessageContent, pushMessage };
+}

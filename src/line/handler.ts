@@ -1,5 +1,5 @@
 import type { Deps, LineEvent, TextMessage, ImageMessage } from './types';
-import { buildTreatmentQuickReply, treatmentToPrompt } from './templates';
+import { buildTreatmentQuickReply, treatmentToPrompt, buildRatingQuickReply } from './templates';
 
 function getUserId(ev: LineEvent): string | undefined {
   const src = (ev as any).source;
@@ -28,10 +28,30 @@ export async function handleEvents(events: LineEvent[], deps: Deps): Promise<voi
         if (!userId) continue;
         let data: any = {};
         try { data = JSON.parse(ev.postback?.data ?? '{}'); } catch {}
+        // Rating feedback flow
+        const rating = typeof data?.r === 'string' ? data.r : undefined;
+        if (rating === 'good' || rating === 'bad') {
+          const msg: TextMessage = {
+            type: 'text',
+            text: rating === 'good' ? 'フィードバックありがとうございます！👍' : 'ご意見ありがとうございます。改善に活かします。',
+          };
+          await deps.replyMessage(ev.replyToken, { messages: [msg] });
+          continue;
+        }
+
+        // Treatment selection flow
         const treatment = data?.t as string | undefined;
         const prompt = treatment ? treatmentToPrompt(treatment) : undefined;
         const blob = await deps.store.get(userId);
         if (prompt && blob) {
+          // 1) immediate reply: generating
+          const generating: TextMessage = {
+            type: 'text',
+            text: 'AIが画像を生成しています。少々お待ちください…',
+          };
+          await deps.replyMessage(ev.replyToken, { messages: [generating] });
+
+          // 2) compute and push result
           const edited = await deps.editImageWithPrompt(blob, prompt);
           const url = deps.toPublicUrl ? await deps.toPublicUrl(edited.dataUrl) : edited.dataUrl;
           const img: ImageMessage = {
@@ -39,7 +59,14 @@ export async function handleEvents(events: LineEvent[], deps: Deps): Promise<voi
             originalContentUrl: url,
             previewImageUrl: url,
           } as any;
-          await deps.replyMessage(ev.replyToken, { messages: [img] });
+          const ask: TextMessage = {
+            type: 'text',
+            text: '結果はいかがでしたか？',
+            quickReply: buildRatingQuickReply(),
+          } as any;
+          if (deps.pushMessage) {
+            await deps.pushMessage(userId, { messages: [img, ask] });
+          }
         } else {
           const msg: TextMessage = {
             type: 'text',

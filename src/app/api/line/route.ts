@@ -31,6 +31,7 @@ export async function POST(req: Request) {
     channelSecret,
     deps: {
       replyMessage: client.replyMessage,
+      pushMessage: client.pushMessage,
       getMessageContent: client.getMessageContent,
       editImageWithPrompt: editImageWithGemini,
       store,

@@ -48,3 +48,17 @@ export function treatmentToPrompt(id: string): string | undefined {
   return TREATMENTS.find((t) => t.id === id)?.prompt;
 }
 
+export function buildRatingQuickReply() {
+  const items = [
+    { key: 'good', label: 'Good 👍' },
+    { key: 'bad', label: 'Bad 👎' },
+  ].map((r) => ({
+    action: {
+      type: 'postback',
+      label: r.label,
+      data: JSON.stringify({ r: r.key }),
+      displayText: `評価: ${r.label}`,
+    },
+  }));
+  return { items } as const;
+}
