@@ -271,8 +271,8 @@ class FaceMeshProcessor:
             Xp = (x * scale_x).astype(np.int32)
             Yp = (y * scale_y).astype(np.int32)
 
-            # ワイヤー描画
-            line_color = (255, 127, 0)  # BGR: 青系より視認性の高い色
+            # ワイヤー描画（青）
+            line_color = (0, 0, 255)  # BGR: Blue
             alpha = max(0.1, min(1.0, float(alpha_wire)))
             thickness = 1
 
@@ -298,7 +298,7 @@ class FaceMeshProcessor:
 
                 if draw_points:
                     for xi, yi in zip(Xp, Yp):
-                        cv2.circle(img_draw, (int(xi), int(yi)), 1, (0, 200, 255), -1)
+                        cv2.circle(img_draw, (int(xi), int(yi)), 1, (255, 0, 0), -1)
 
                 # 透明合成（ワイヤーを薄く）
                 img = cv2.addWeighted(img_draw, alpha, img, 1.0 - alpha, 0)
@@ -346,20 +346,20 @@ class FaceMeshProcessor:
             # 三角形でワイヤーフレーム
             import matplotlib.tri as mtri
             triang = mtri.Triangulation(Xp, Yp, triangles=mesh.faces)
-            ax.triplot(triang, linewidth=0.6, color=(0.0, 0.5, 1.0, alpha_wire))
+            ax.triplot(triang, linewidth=0.6, color=(0.0, 0.0, 1.0, alpha_wire))
         else:
             # 既定の接続で線分を描く（MediaPipe の接続を利用）
             try:
                 from mediapipe.python.solutions.face_mesh_connections import FACEMESH_TESSELATION
                 for (i, j) in FACEMESH_TESSELATION:
-                    ax.plot([Xp[i], Xp[j]], [Yp[i], Yp[j]], linewidth=0.3, color=(0.0, 0.5, 1.0, alpha_wire))
+                    ax.plot([Xp[i], Xp[j]], [Yp[i], Yp[j]], linewidth=0.3, color=(0.0, 0.0, 1.0, alpha_wire))
             except Exception:
                 # 接続が無い場合は点だけ
                 pass
 
         # 点を薄く重ねる
         if draw_points:
-            ax.scatter(Xp, Yp, s=3, c=(0.0, 0.5, 1.0, min(alpha_wire, 0.5)))
+            ax.scatter(Xp, Yp, s=3, c=(0.0, 0.0, 1.0, min(alpha_wire, 0.5)))
 
         # インデックス表示（小さく）
         if draw_indices:
