@@ -92,8 +92,9 @@ export default function Home() {
       
       // Generate profile views after main simulation is complete
       generateProfileViews(file, data.image);
-    } catch (e: any) {
-      setError(e.message || "予期しないエラーが発生しました");
+    } catch (err) {
+      const error = err as unknown as { message?: string };
+      setError(error?.message || "予期しないエラーが発生しました");
     } finally {
       setLoading(false);
     }
@@ -137,8 +138,8 @@ export default function Home() {
         const profileAfterData = await profileAfterRes.json();
         setProfileAfter(profileAfterData.image);
       }
-    } catch (e: any) {
-      console.error("Profile generation error:", e);
+    } catch (err) {
+      console.error("Profile generation error:", err);
       // Don't show error for profile generation failure
     } finally {
       setProfileLoading(false);
