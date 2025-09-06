@@ -1,4 +1,6 @@
 {
-  "/page": "app/page.js",
-  "/dashboard/page": "app/dashboard/page.js"
+  "/api/edit-image/route": "app/api/edit-image/route.js",
+  "/api/generate/route": "app/api/generate/route.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/page": "app/page.js"
 }

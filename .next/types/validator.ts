@@ -71,6 +71,12 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   handler satisfies RouteHandlerConfig<"/api/arms">
 }
 
+// Validate ../../src/app/api/cdn/[id]/route.ts
+{
+  const handler = {} as typeof import("../../src/app/api/cdn/[id]/route.js")
+  handler satisfies RouteHandlerConfig<"/api/cdn/[id]">
+}
+
 // Validate ../../src/app/api/edit-image/route.ts
 {
   const handler = {} as typeof import("../../src/app/api/edit-image/route.js")
@@ -93,6 +99,12 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
 {
   const handler = {} as typeof import("../../src/app/api/generate/route.js")
   handler satisfies RouteHandlerConfig<"/api/generate">
+}
+
+// Validate ../../src/app/api/line/route.ts
+{
+  const handler = {} as typeof import("../../src/app/api/line/route.js")
+  handler satisfies RouteHandlerConfig<"/api/line">
 }
 
 // Validate ../../src/app/api/metrics/approvals/route.ts
