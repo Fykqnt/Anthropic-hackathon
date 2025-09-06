@@ -335,6 +335,65 @@ def _estimate_similarity(A: np.ndarray, B: np.ndarray):
     t = muB - scale * (muA @ R)
     return R, float(scale), t
 
+def _get_eye_center_and_face_width_endpoints_px(landmarks, width: int, height: int) -> np.ndarray:
+    """目の中心(左右の目の中点)と、目の高さ(y)における顔の左右端点(x最小/最大)をピクセル座標で返す (3,2)
+    戻り順: [eye_mid, left_edge_at_eye_y, right_edge_at_eye_y]
+    """
+    # 既存の目まわり代表点を利用して左右目の中心を推定
+    left_ids = [33, 7, 163, 144]
+    right_ids = [362, 382, 380, 374]
+
+    def _avg(ids):
+        xs = [landmarks.landmark[i].x * width for i in ids]
+        ys = [landmarks.landmark[i].y * height for i in ids]
+        return np.array([float(np.mean(xs)), float(np.mean(ys))], dtype=np.float64)
+
+    left_eye = _avg(left_ids)
+    right_eye = _avg(right_ids)
+    eye_mid = (left_eye + right_eye) / 2.0
+    y_eye = float(eye_mid[1])
+
+    # 目の高さ(y)近傍のランドマークから左右端点を抽出
+    y_thresh = max(2.0, height * 0.03)  # 画像高さの約3%以内、最低2px幅の帯
+    xs_near = []
+    for lm in landmarks.landmark:
+        px = float(lm.x * width)
+        py = float(lm.y * height)
+        if abs(py - y_eye) <= y_thresh:
+            xs_near.append(px)
+
+    if len(xs_near) >= 2:
+        x_left = float(np.min(xs_near))
+        x_right = float(np.max(xs_near))
+    else:
+        # 近傍が少なすぎる場合は全体から最小/最大xをフォールバック
+        all_x = [float(lm.x * width) for lm in landmarks.landmark]
+        x_left = float(np.min(all_x))
+        x_right = float(np.max(all_x))
+
+    left_edge = np.array([x_left, y_eye], dtype=np.float64)
+    right_edge = np.array([x_right, y_eye], dtype=np.float64)
+    return np.stack([eye_mid, left_edge, right_edge], axis=0)
+
+def _estimate_scale_translation(A: np.ndarray, B: np.ndarray):
+    """回転なし(等方スケール + 並進のみ)で A( N,2 ) -> B( N,2 ) を最小二乗推定
+    返り値: (s: float, t: (2,) np.ndarray)
+    """
+    if A.shape != B.shape or A.shape[0] < 1:
+        raise ValueError("Need >=1 corresponding points of same shape")
+    muA = A.mean(axis=0)
+    muB = B.mean(axis=0)
+    Ac = A - muA
+    Bc = B - muB
+    denom = float(np.sum(Ac ** 2))
+    if denom < 1e-8:
+        s = 1.0
+    else:
+        # 回転項を含めず、スカラーsのみで近似 (Ac と Bc の内積の総和 / Ac の二乗和)
+        s = float(np.sum(Ac * Bc) / denom)
+    t = muB - s * muA
+    return s, t
+
 @app.post("/mesh/overlay")
 async def overlay_mesh(
     source_image: UploadFile = File(...),
@@ -343,7 +402,10 @@ async def overlay_mesh(
     swap: bool = Form(True),  # 既定で target→source に重ねる
     processors: Dict = Depends(get_processors)
 ):
-    """画像Aで作成したメッシュを、画像Bの顔に相似変換で合わせて重ねる"""
+    """画像Aで作成したメッシュを、画像Bの顔に『回転なしの等方スケール＋平行移動』で合わせて重ねる
+    - キー点は『左右目の中点』と『目の高さにおける顔の左右端点』を使用
+    - メッシュの歪み(回転/せん断/非等方スケール)は行わない
+    """
     try:
         if not consent:
             raise HTTPException(status_code=400, detail="Consent is required")
@@ -371,12 +433,12 @@ async def overlay_mesh(
             src_mesh = await processors["face_processor"].build_mesh(src_pil)
             if src_mesh is None:
                 raise HTTPException(status_code=400, detail="Failed to build mesh from source image")
-            A = _get_keypoints_px(src_lm, sw, sh)
-            B = _get_keypoints_px(tgt_lm, tw, th)
-            R, s, t = _estimate_similarity(A, B)
+            A = _get_eye_center_and_face_width_endpoints_px(src_lm, sw, sh)
+            B = _get_eye_center_and_face_width_endpoints_px(tgt_lm, tw, th)
+            s, t = _estimate_scale_translation(A, B)
             verts = src_mesh.vertices.copy()
             XY = verts[:, :2]
-            XYt = s * (XY @ R) + t
+            XYt = s * XY + t
             verts[:, :2] = XYt
             import trimesh
             aligned_mesh = trimesh.Trimesh(vertices=verts, faces=src_mesh.faces)
@@ -388,12 +450,12 @@ async def overlay_mesh(
             tgt_mesh = await processors["face_processor"].build_mesh(tgt_pil)
             if tgt_mesh is None:
                 raise HTTPException(status_code=400, detail="Failed to build mesh from target image")
-            A = _get_keypoints_px(tgt_lm, tw, th)
-            B = _get_keypoints_px(src_lm, sw, sh)
-            R, s, t = _estimate_similarity(A, B)
+            A = _get_eye_center_and_face_width_endpoints_px(tgt_lm, tw, th)
+            B = _get_eye_center_and_face_width_endpoints_px(src_lm, sw, sh)
+            s, t = _estimate_scale_translation(A, B)
             verts = tgt_mesh.vertices.copy()
             XY = verts[:, :2]
-            XYt = s * (XY @ R) + t
+            XYt = s * XY + t
             verts[:, :2] = XYt
             import trimesh
             aligned_mesh = trimesh.Trimesh(vertices=verts, faces=tgt_mesh.faces)
