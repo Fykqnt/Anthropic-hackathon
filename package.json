@@ -6,14 +6,22 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "batch:optimize": "tsx --env-file=.env.local scripts/batch_claude.ts",
+    "arms:stats": "tsx --env-file=.env.local -e \"import { getArmMetrics } from './src/lib/bandit'; getArmMetrics().then(console.log)\"",
+    "seed:history": "tsx --env-file=.env.local scripts/seed_history.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.61.0",
+    "@clerk/nextjs": "^6.31.9",
     "@google/genai": "^1.17.0",
     "@google/generative-ai": "^0.24.1",
+    "@supabase/supabase-js": "^2.57.2",
+    "dotenv": "^17.2.2",
     "next": "15.5.2",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react-dom": "19.1.0",
+    "zod": "^4.1.5"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
@@ -24,6 +32,7 @@
     "eslint": "^9",
     "eslint-config-next": "15.5.2",
     "tailwindcss": "^4",
+    "tsx": "^4.20.5",
     "typescript": "^5"
   }
 }
