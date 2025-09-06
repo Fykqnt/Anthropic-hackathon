@@ -1,17 +1,15 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { SurgeryIntensity, surgeryOptions, defaultIntensities, generateSurgeryPrompt, getIntensityLabel, getIntensityColor, generateProfilePrompt } from "./prompt";
+import { SurgeryIntensity, surgeryOptions, defaultIntensities, generateSurgeryPrompt, getIntensityLabel, getIntensityColor } from "./prompt";
 
 export default function Home() {
   const [intensities, setIntensities] = useState<SurgeryIntensity>(defaultIntensities);
   const [image, setImage] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
-  const [profileBefore, setProfileBefore] = useState<string | null>(null);
-  const [profileAfter, setProfileAfter] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [profileLoading, setProfileLoading] = useState(false);
+  
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -74,8 +72,6 @@ export default function Home() {
     setError(null);
     setSuccess(null);
     setImage(null);
-    setProfileBefore(null);
-    setProfileAfter(null);
     try {
       if (!file) throw new Error("写真をアップロードしてください");
       const form = new FormData();
@@ -89,9 +85,6 @@ export default function Home() {
       if (!res.ok) throw new Error(data?.error || "シミュレーションに失敗しました");
       setImage(data.image);
       setSuccess("美容整形シミュレーションが完了しました！");
-      
-      // Generate profile views after main simulation is complete
-      generateProfileViews(file, data.image);
     } catch (err) {
       const error = err as unknown as { message?: string };
       setError(error?.message || "予期しないエラーが発生しました");
@@ -100,51 +93,7 @@ export default function Home() {
     }
   }
 
-  async function generateProfileViews(originalFile: File, afterImageUrl: string) {
-    setProfileLoading(true);
-    try {
-      // First, generate profile view of original image to establish the reference
-      const profileBeforeForm = new FormData();
-      profileBeforeForm.set("prompt", generateProfilePrompt(false));
-      profileBeforeForm.set("image", originalFile);
-      
-      const profileBeforeRes = await fetch("/api/edit-image", {
-        method: "POST",
-        body: profileBeforeForm,
-      });
-      
-      let profileBeforeUrl = null;
-      if (profileBeforeRes.ok) {
-        const profileBeforeData = await profileBeforeRes.json();
-        profileBeforeUrl = profileBeforeData.image;
-        setProfileBefore(profileBeforeUrl);
-      }
-
-      // Generate profile view of after image with reference to the before profile
-      const afterResponse = await fetch(afterImageUrl);
-      const afterBlob = await afterResponse.blob();
-      const afterFile = new File([afterBlob], "after.png", { type: "image/png" });
-      
-      const profileAfterForm = new FormData();
-      profileAfterForm.set("prompt", generateProfilePrompt(true));
-      profileAfterForm.set("image", afterFile);
-      
-      const profileAfterRes = await fetch("/api/edit-image", {
-        method: "POST",
-        body: profileAfterForm,
-      });
-      
-      if (profileAfterRes.ok) {
-        const profileAfterData = await profileAfterRes.json();
-        setProfileAfter(profileAfterData.image);
-      }
-    } catch (err) {
-      console.error("Profile generation error:", err);
-      // Don't show error for profile generation failure
-    } finally {
-      setProfileLoading(false);
-    }
-  }
+  
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -338,12 +287,7 @@ export default function Home() {
             </div>
           )}
           
-          {profileLoading && !loading && (
-            <div className="status-loading fade-in mt-6">
-              <div className="loading-spinner"></div>
-              <span>横顔（プロフィール）を生成中です...</span>
-            </div>
-          )}
+          
           
           {error && (
             <div className="status-error fade-in mt-6">
@@ -494,117 +438,7 @@ export default function Home() {
           </section>
         )}
 
-        {/* Profile Views Section */}
-        {(profileBefore || profileAfter || profileLoading) && image && (
-          <section className="card glass-effect overflow-hidden slide-up">
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 border-b border-blue-200">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-                  👤
-                </div>
-                <div>
-                  <h2 className="text-xl font-bold text-gray-800">横顔（プロフィール）比較</h2>
-                  <p className="text-sm text-gray-600">
-                    {profileLoading ? "統一された横顔を生成中..." : "同じ角度・表情・背景で比較可能"}
-                  </p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="p-6">
-              {profileLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <div className="text-center space-y-4">
-                    <div className="loading-spinner mx-auto"></div>
-                    <p className="text-gray-600">横顔を生成しています...</p>
-                    <p className="text-sm text-gray-500">少々お待ちください</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Profile Before */}
-                  {profileBefore && (
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 bg-gray-500 rounded-full flex items-center justify-center text-white text-sm font-bold">
-                          B
-                        </div>
-                        <h3 className="text-lg font-semibold text-gray-800">横顔 Before（施術前）</h3>
-                      </div>
-                      <div className="relative group aspect-square">
-                        <img 
-                          src={profileBefore} 
-                          alt="施術前の横顔" 
-                          className="w-full h-full object-cover rounded-xl shadow-lg transition-transform duration-300 group-hover:scale-[1.02]" 
-                        />
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors duration-300 rounded-xl"></div>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Profile After */}
-                  {profileAfter && (
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm font-bold">
-                          A
-                        </div>
-                        <h3 className="text-lg font-semibold text-gray-800">横顔 After（施術後）</h3>
-                      </div>
-                      <div className="relative group aspect-square">
-                        <img 
-                          src={profileAfter} 
-                          alt="美容整形後の横顔" 
-                          className="w-full h-full object-cover rounded-xl shadow-lg transition-transform duration-300 group-hover:scale-[1.02]" 
-                        />
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors duration-300 rounded-xl"></div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-              
-              {/* Alignment Features Info */}
-              {(profileBefore || profileAfter) && !profileLoading && (
-                <div className="mt-6 bg-blue-50 rounded-xl p-4">
-                  <h3 className="font-semibold text-blue-800 mb-2 flex items-center gap-2">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M12 2v20M2 12h20" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                    </svg>
-                    統一された比較条件
-                  </h3>
-                  <div className="grid grid-cols-2 gap-3 text-sm text-blue-700">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-                      同じ角度（左向き横顔）
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-                      統一された表情
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-                      同じ背景・照明
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-                      一致した構図
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              {!profileLoading && (!profileBefore || !profileAfter) && (
-                <div className="text-center py-8">
-                  <div className="text-gray-500">
-                    <p className="text-sm">横顔の生成に失敗した場合があります</p>
-                    <p className="text-xs mt-1">正面向きの写真を使用すると、より良い結果が得られます</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </section>
-        )}
+        
       </main>
     </div>
   );
