@@ -33,11 +33,11 @@ export async function handleEvents(events: LineEvent[], deps: Deps): Promise<voi
         const blob = await deps.store.get(userId);
         if (prompt && blob) {
           const edited = await deps.editImageWithPrompt(blob, prompt);
+          const url = deps.toPublicUrl ? await deps.toPublicUrl(edited.dataUrl) : edited.dataUrl;
           const img: ImageMessage = {
             type: 'image',
-            // NOTE: LINE requires public URLs; for MVP/testing we embed data URL
-            originalContentUrl: edited.dataUrl,
-            previewImageUrl: edited.dataUrl,
+            originalContentUrl: url,
+            previewImageUrl: url,
           } as any;
           await deps.replyMessage(ev.replyToken, { messages: [img] });
         } else {
@@ -67,4 +67,3 @@ export async function handleEvents(events: LineEvent[], deps: Deps): Promise<voi
     }
   }
 }
-

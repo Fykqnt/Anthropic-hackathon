@@ -25,8 +25,8 @@ export type Deps = {
   getMessageContent: (messageId: string) => Promise<ImageBlob>;
   editImageWithPrompt: (blob: ImageBlob, prompt: string) => Promise<{ dataUrl: string }>;
   store: ImageStore;
+  toPublicUrl?: (dataUrl: string) => Promise<string>;
 };
 
 export type TextMessage = { type: 'text'; text: string; quickReply?: any };
 export type ImageMessage = { type: 'image'; originalContentUrl: string; previewImageUrl: string };
-

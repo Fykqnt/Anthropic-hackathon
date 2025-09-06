@@ -3,6 +3,7 @@ import { processLineWebhook } from '../../../line/webhook';
 import { createLineClient } from '../../../line/client';
 import { InMemoryImageStore } from '../../../line/store';
 import { editImageWithGemini } from '../../../line/edit';
+import * as cdn from '../../../line/cdn';
 
 export const runtime = 'nodejs';
 
@@ -20,6 +21,10 @@ export async function POST(req: Request) {
   const bodyText = await req.text();
 
   const client = createLineClient({ accessToken });
+  // Derive public base URL from request headers (works on Vercel/NGINX behind proxy)
+  const proto = (req.headers.get('x-forwarded-proto') || 'https').split(',')[0].trim();
+  const host = (req.headers.get('x-forwarded-host') || req.headers.get('host') || '').split(',')[0].trim();
+  const baseUrl = process.env.PUBLIC_BASE_URL || (host ? `${proto}://${host}` : '');
   const res = await processLineWebhook({
     bodyText,
     signature,
@@ -29,6 +34,16 @@ export async function POST(req: Request) {
       getMessageContent: client.getMessageContent,
       editImageWithPrompt: editImageWithGemini,
       store,
+      toPublicUrl: async (dataUrl: string) => {
+        // Convert data URL to Buffer and publish under /api/cdn/:id
+        const m = /^data:([^;]+);base64,(.*)$/i.exec(dataUrl);
+        if (!m) return dataUrl;
+        const mime = m[1];
+        const buf = Buffer.from(m[2], 'base64');
+        const id = cdn.put(buf, mime);
+        if (!baseUrl) return `/api/cdn/${id}`; // best-effort
+        return `${baseUrl}/api/cdn/${id}`;
+      },
     },
   });
 
@@ -38,4 +53,3 @@ export async function POST(req: Request) {
   }
   return NextResponse.json({ ok: true }, { status: 200 });
 }
-
